@@ -1,0 +1,2 @@
+"""Interactive pandas data explorer."""
+
