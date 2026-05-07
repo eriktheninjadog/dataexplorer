@@ -1,13 +1,17 @@
+import os
 import unittest
 import builtins
 from unittest.mock import patch
 
 from dataexplorer.core import (
+    build_chat_prompt,
     build_prompt,
     default_script,
     extract_python_code,
+    request_llm_chat,
     request_llm_update,
     run_user_code,
+    run_user_code_with_plots,
 )
 
 
@@ -75,6 +79,51 @@ class CoreTests(unittest.TestCase):
         mock_run.return_value.stderr = "no model"
         with self.assertRaises(RuntimeError):
             request_llm_update("do it", "print('x')", "prices.csv")
+
+    def test_build_chat_prompt_contains_context(self) -> None:
+        prompt = build_chat_prompt("what is the max price?", "prices.csv", "Shape: 10 rows x 3 cols")
+        self.assertIn("what is the max price?", prompt)
+        self.assertIn("prices.csv", prompt)
+        self.assertIn("Shape: 10 rows x 3 cols", prompt)
+        self.assertNotIn("Return only valid Python code", prompt)
+
+    def test_build_chat_prompt_without_summary(self) -> None:
+        prompt = build_chat_prompt("describe the data", "prices.csv")
+        self.assertIn("describe the data", prompt)
+        self.assertIn("prices.csv", prompt)
+
+    @patch("dataexplorer.core.subprocess.run")
+    def test_request_llm_chat_returns_plain_text(self, mock_run) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "The max price is 100."
+        mock_run.return_value.stderr = ""
+        output = request_llm_chat("what is the max price?", "prices.csv")
+        self.assertEqual(output, "The max price is 100.")
+
+    @patch("dataexplorer.core.subprocess.run")
+    def test_request_llm_chat_raises_on_failure(self, mock_run) -> None:
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = "no model"
+        with self.assertRaises(RuntimeError):
+            request_llm_chat("any question", "prices.csv")
+
+    def test_run_user_code_with_plots_returns_stdout(self) -> None:
+        output, paths = run_user_code_with_plots("print('hello plots')", "prices.csv")
+        self.assertEqual(output, "hello plots")
+        self.assertEqual(paths, [])
+
+    def test_run_user_code_with_plots_returns_error(self) -> None:
+        output, paths = run_user_code_with_plots("raise ValueError('plot error')", "prices.csv")
+        self.assertIn("plot error", output)
+        self.assertEqual(paths, [])
+
+    def test_run_user_code_with_plots_captures_plt_show(self) -> None:
+        code = "plt.figure()\nplt.plot([1, 2, 3])\nplt.show()"
+        output, paths = run_user_code_with_plots(code, "prices.csv")
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(os.path.exists(paths[0]))
+        self.assertTrue(paths[0].endswith(".png"))
 
 
 if __name__ == "__main__":
