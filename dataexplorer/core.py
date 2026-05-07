@@ -123,9 +123,8 @@ def run_user_code(code: str, data_path: str) -> str:
     try:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             exec(compile(code, "<session_code>", "exec"), namespace, namespace)
-    except Exception as error:
-        error_text = str(error)
-        if "__import__" in error_text and ("not defined" in error_text or "not found" in error_text):
+    except (NameError, ImportError) as error:
+        if "__import__" in str(error):
             return (
                 "Error: import statements are disabled in session code. "
                 "Use the preloaded 'pd' pandas object instead."
@@ -134,10 +133,15 @@ def run_user_code(code: str, data_path: str) -> str:
         if err_text:
             return f"{stdout.getvalue()}\n{err_text}\n{error}".strip()
         return f"{stdout.getvalue()}\nError: {error}".strip()
+    except Exception as error:
+        err_text = stderr.getvalue().strip()
+        if err_text:
+            return f"{stdout.getvalue()}\n{err_text}\n{error}".strip()
+        return f"{stdout.getvalue()}\nError: {error}".strip()
     err_text = stderr.getvalue().strip()
     if err_text:
         return f"{stdout.getvalue()}\n{err_text}".strip()
-    return stdout.getvalue().strip() or "Script ran successfully with no output."
+    return stdout.getvalue().strip() or "No output produced."
 
 
 def _references_pandas(code: str) -> bool:

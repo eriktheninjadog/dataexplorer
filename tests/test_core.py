@@ -37,7 +37,7 @@ class CoreTests(unittest.TestCase):
 
     def test_run_user_code_returns_error_message(self) -> None:
         output = run_user_code("raise ValueError('bad data')", "prices.csv")
-        self.assertIn("Error: bad data", output)
+        self.assertEqual(output, "Error: bad data")
 
     def test_run_user_code_preserves_stdout_before_error(self) -> None:
         output = run_user_code("print('before')\nraise ValueError('bad data')", "prices.csv")
