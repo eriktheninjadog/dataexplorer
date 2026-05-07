@@ -1,6 +1,13 @@
 import unittest
+from unittest.mock import patch
 
-from dataexplorer.core import build_prompt, default_script, extract_python_code, run_user_code
+from dataexplorer.core import (
+    build_prompt,
+    default_script,
+    extract_python_code,
+    request_llm_update,
+    run_user_code,
+)
 
 
 class CoreTests(unittest.TestCase):
@@ -27,9 +34,29 @@ class CoreTests(unittest.TestCase):
         output = run_user_code("print('ok')", "prices.csv")
         self.assertEqual(output, "ok")
 
-    def test_run_user_code_allows_imports(self) -> None:
+    def test_run_user_code_returns_error_message(self) -> None:
+        output = run_user_code("raise ValueError('bad data')", "prices.csv")
+        self.assertIn("Error: bad data", output)
+
+    def test_run_user_code_blocks_import_statements(self) -> None:
         output = run_user_code("import math\nprint(math.sqrt(4))", "prices.csv")
-        self.assertEqual(output, "2.0")
+        self.assertIn("import statements are disabled", output)
+
+    @patch("dataexplorer.core.subprocess.run")
+    def test_request_llm_update_extracts_code(self, mock_run) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "```python\nprint('ok')\n```"
+        mock_run.return_value.stderr = ""
+        output = request_llm_update("do it", "print('x')", "prices.csv")
+        self.assertEqual(output, "print('ok')")
+
+    @patch("dataexplorer.core.subprocess.run")
+    def test_request_llm_update_raises_on_failure(self, mock_run) -> None:
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = "no model"
+        with self.assertRaises(RuntimeError):
+            request_llm_update("do it", "print('x')", "prices.csv")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,10 @@ import subprocess
 
 
 SAFE_BUILTINS = {
-    "__import__": __import__,
+    "Exception": Exception,
+    "NameError": NameError,
+    "TypeError": TypeError,
+    "ValueError": ValueError,
     "abs": abs,
     "dict": dict,
     "enumerate": enumerate,
@@ -30,8 +33,8 @@ SAFE_BUILTINS = {
 
 
 def default_script(data_path: str) -> str:
+    """Create a starter script for time-series price-data exploration."""
     return (
-        "import pandas as pd\n\n"
         f"data_path = {data_path!r}\n"
         "df = pd.read_csv(data_path)\n"
         "print('Rows:', len(df))\n"
@@ -48,7 +51,7 @@ def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
     return (
         "You are helping with a local, interactive pandas time-series explorer.\n"
         "Return only valid Python code (no markdown fences) that can be executed directly.\n"
-        "Use pandas and keep prints concise and useful for iterative analysis.\n"
+        "Use pandas (already available as 'pd') and keep prints concise and useful for iterative analysis.\n"
         f"The CSV path to use is: {data_path}\n\n"
         "Current code:\n"
         f"{current_code}\n\n"
@@ -73,6 +76,10 @@ def request_llm_update(
     command: str = "ollama",
     timeout: int = 60,
 ) -> str:
+    if not command.strip():
+        raise RuntimeError("LLM command cannot be empty.")
+    if not model.strip():
+        raise RuntimeError("LLM model cannot be empty.")
     prompt = build_prompt(user_request=user_request, current_code=current_code, data_path=data_path)
     process = subprocess.run(
         [command, "run", model, prompt],
@@ -97,17 +104,24 @@ def run_user_code(code: str, data_path: str) -> str:
         "__builtins__": SAFE_BUILTINS,
         "data_path": str(Path(data_path)),
     }
+    pandas_import_error: Exception | None = None
     try:
         import pandas as pd  # type: ignore
 
         namespace["pd"] = pd
-    except Exception:
-        if "import pandas as pd" in code:
-            return "Error: pandas is required to execute this script but is not installed."
+    except Exception as error:
+        pandas_import_error = error
+    if pandas_import_error and ("pd" in code or "pandas" in code):
+        return "Error: pandas is required to execute this script but is not installed."
     try:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             exec(compile(code, "<session_code>", "exec"), namespace, namespace)
     except Exception as error:
+        if "__import__ not found" in str(error):
+            return (
+                "Error: import statements are disabled in session code. "
+                "Use the preloaded 'pd' pandas object instead."
+            )
         err_text = stderr.getvalue().strip()
         if err_text:
             return f"{stdout.getvalue()}\n{err_text}\n{error}".strip()
