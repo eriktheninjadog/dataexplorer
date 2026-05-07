@@ -62,7 +62,7 @@ def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
 
 
 def extract_python_code(text: str) -> str:
-    match = re.search(r"```python\b", text, flags=re.IGNORECASE)
+    match = re.search(r"```python", text, flags=re.IGNORECASE)
     if match:
         closing = text.find("```", match.end())
         if closing != -1:
@@ -124,7 +124,8 @@ def run_user_code(code: str, data_path: str) -> str:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             exec(compile(code, "<session_code>", "exec"), namespace, namespace)
     except Exception as error:
-        if "__import__ not found" in str(error):
+        error_text = str(error)
+        if "__import__" in error_text and ("not defined" in error_text or "not found" in error_text):
             return (
                 "Error: import statements are disabled in session code. "
                 "Use the preloaded 'pd' pandas object instead."
@@ -143,7 +144,7 @@ def _references_pandas(code: str) -> bool:
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        return True
+        return False
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and node.id in {"pd", "pandas"}:
             return True
