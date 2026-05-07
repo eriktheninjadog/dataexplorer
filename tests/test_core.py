@@ -1,4 +1,5 @@
 import unittest
+import builtins
 from unittest.mock import patch
 
 from dataexplorer.core import (
@@ -38,9 +39,26 @@ class CoreTests(unittest.TestCase):
         output = run_user_code("raise ValueError('bad data')", "prices.csv")
         self.assertIn("Error: bad data", output)
 
+    def test_run_user_code_preserves_stdout_before_error(self) -> None:
+        output = run_user_code("print('before')\nraise ValueError('bad data')", "prices.csv")
+        self.assertIn("before", output)
+        self.assertIn("Error: bad data", output)
+
     def test_run_user_code_blocks_import_statements(self) -> None:
         output = run_user_code("import math\nprint(math.sqrt(4))", "prices.csv")
         self.assertIn("import statements are disabled", output)
+
+    def test_run_user_code_works_without_pandas_when_not_referenced(self) -> None:
+        real_import = builtins.__import__
+
+        def import_with_missing_pandas(name, *args, **kwargs):
+            if name == "pandas":
+                raise ImportError("pandas missing")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=import_with_missing_pandas):
+            output = run_user_code("print('no pandas needed')", "prices.csv")
+        self.assertEqual(output, "no pandas needed")
 
     @patch("dataexplorer.core.subprocess.run")
     def test_request_llm_update_extracts_code(self, mock_run) -> None:

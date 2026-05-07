@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -61,9 +62,11 @@ def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
 
 
 def extract_python_code(text: str) -> str:
-    match = re.search(r"```python\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    match = re.search(r"```python\b", text, flags=re.IGNORECASE)
     if match:
-        return match.group(1).strip()
+        closing = text.find("```", match.end())
+        if closing != -1:
+            return text[match.end() : closing].strip()
     return text.strip()
 
 
@@ -98,6 +101,10 @@ def request_llm_update(
 
 
 def run_user_code(code: str, data_path: str) -> str:
+    """Run session code with pandas preloaded as `pd` and restricted builtins.
+
+    This limits imports but is not a hardened sandbox.
+    """
     stdout = StringIO()
     stderr = StringIO()
     namespace: dict[str, object] = {
@@ -111,7 +118,7 @@ def run_user_code(code: str, data_path: str) -> str:
         namespace["pd"] = pd
     except Exception as error:
         pandas_import_error = error
-    if pandas_import_error and ("pd" in code or "pandas" in code):
+    if pandas_import_error and _references_pandas(code):
         return "Error: pandas is required to execute this script but is not installed."
     try:
         with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -130,3 +137,20 @@ def run_user_code(code: str, data_path: str) -> str:
     if err_text:
         return f"{stdout.getvalue()}\n{err_text}".strip()
     return stdout.getvalue().strip() or "Script ran successfully with no output."
+
+
+def _references_pandas(code: str) -> bool:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in {"pd", "pandas"}:
+            return True
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".")[0] == "pandas" for alias in node.names):
+                return True
+        if isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "pandas":
+                return True
+    return False

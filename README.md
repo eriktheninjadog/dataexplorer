@@ -15,3 +15,7 @@ python main.py --csv prices.csv --model llama3.1
 - Use **Ask LLM** to request script updates from your local LLM (`ollama run <model>` by default).
 - Use **Run Code** to execute the current script with pandas against the selected CSV path.
 - Script output appears in the right-side output panel for iterative analysis and tests.
+
+## Notes
+
+- Session code runs with restricted builtins and preloaded `pd`, but this is not a hardened sandbox.
