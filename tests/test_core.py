@@ -35,6 +35,15 @@ class CoreTests(unittest.TestCase):
         self.assertIn("print('x')", prompt)
         self.assertIn("prices.csv", prompt)
 
+    def test_build_prompt_includes_trading_simulation_guidance(self) -> None:
+        prompt = build_prompt("run a trading simulation", "print('x')", "prices.csv")
+        self.assertIn("trading simulation/backtest", prompt)
+        self.assertIn("indicator columns", prompt)
+        self.assertIn("signal column values", prompt)
+        self.assertIn("default to 'close'", prompt)
+        self.assertIn("pnl, Sharpe, and Sortino", prompt)
+        self.assertIn("max drawdown", prompt)
+
     def test_run_user_code_returns_stdout(self) -> None:
         output = run_user_code("print('ok')", "prices.csv")
         self.assertEqual(output, "ok")
