@@ -169,6 +169,15 @@ def get_data_summary(data_path: str) -> str:
 def run_user_code_with_plots(code: str, data_path: str) -> tuple[str, list[str]]:
     """Like run_user_code but pre-injects matplotlib and captures plt.show() calls as PNG files.
 
+    ``plt`` (matplotlib.pyplot with the Agg backend) is injected into the execution namespace so
+    user code can call ``plt.plot(...)`` / ``plt.show()`` without import statements.
+    Note: ``plt.show`` is replaced globally on the injected pyplot module for the duration of this
+    call; this is a side effect of matplotlib's shared module state.
+
+    Each ``plt.show()`` call saves the current figure to a temporary directory and closes all
+    figures. The temporary directory is not automatically deleted so that callers can open the
+    files with an external viewer; callers are responsible for cleanup if desired.
+
     Returns (text_output, list_of_figure_paths).
     """
     figure_paths: list[str] = []
@@ -236,8 +245,11 @@ def run_user_code_with_plots(code: str, data_path: str) -> tuple[str, list[str]]
     return (stdout.getvalue().strip() or "No output produced."), figure_paths
 
 
-def open_figure(path: str) -> None:
-    """Open a saved figure file with the system default image viewer."""
+def open_figure(path: str) -> bool:
+    """Open a saved figure file with the system default image viewer.
+
+    Returns True if the viewer was launched successfully, False otherwise.
+    """
     try:
         if sys.platform == "darwin":
             subprocess.Popen(["open", path])
@@ -245,8 +257,9 @@ def open_figure(path: str) -> None:
             os.startfile(path)  # type: ignore[attr-defined]
         else:
             subprocess.Popen(["xdg-open", path])
+        return True
     except Exception:
-        pass
+        return False
 
 
 def run_user_code(code: str, data_path: str) -> str:

@@ -147,5 +147,6 @@ class DataExplorerApp(App[None]):
         output.write(result)
         for path in figure_paths:
             output.write(f"Plot saved: {path}")
-            open_figure(path)
+            if not open_figure(path):
+                output.write(f"  (Could not open viewer for {path})")
 

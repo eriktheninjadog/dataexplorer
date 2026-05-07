@@ -1,3 +1,4 @@
+import os
 import unittest
 import builtins
 from unittest.mock import patch
@@ -121,7 +122,6 @@ class CoreTests(unittest.TestCase):
         code = "plt.figure()\nplt.plot([1, 2, 3])\nplt.show()"
         output, paths = run_user_code_with_plots(code, "prices.csv")
         self.assertEqual(len(paths), 1)
-        import os
         self.assertTrue(os.path.exists(paths[0]))
         self.assertTrue(paths[0].endswith(".png"))
 
