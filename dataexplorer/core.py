@@ -38,6 +38,9 @@ SAFE_BUILTINS = {
     "tuple": tuple,
 }
 
+# Assumes a standard equities-style annualization factor.
+TRADING_DAYS_PER_YEAR = 252
+
 
 def sanitize_script_text(text: str) -> str:
     """Remove non-ASCII characters from script text."""
@@ -437,7 +440,10 @@ def run_signal_trading_simulation(
     price_column: str = "close",
     signal_column: str = "signal",
 ) -> str:
-    """Run session code, then simulate trading using next-row execution from ``signal``."""
+    """Run session code, then simulate trading using next-row execution from ``signal``.
+
+    Risk metrics are annualized with a 252 trading-days factor.
+    """
     stdout = StringIO()
     stderr = StringIO()
     namespace: dict[str, object] = {
@@ -501,11 +507,11 @@ def run_signal_trading_simulation(
     equity = step_pnl.cumsum()
     mean_step_pnl = float(step_pnl.mean())
     step_std = float(step_pnl.std(ddof=0))
-    sharpe = 0.0 if step_std == 0 else mean_step_pnl / step_std * (252 ** 0.5)
+    sharpe = 0.0 if step_std == 0 else mean_step_pnl / step_std * (TRADING_DAYS_PER_YEAR ** 0.5)
 
     downside = step_pnl[step_pnl < 0]
     downside_std = float(downside.std(ddof=0)) if len(downside) else 0.0
-    sortino = 0.0 if downside_std == 0 else mean_step_pnl / downside_std * (252 ** 0.5)
+    sortino = 0.0 if downside_std == 0 else mean_step_pnl / downside_std * (TRADING_DAYS_PER_YEAR ** 0.5)
 
     drawdown = equity - equity.cummax()
     max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0

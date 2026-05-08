@@ -54,6 +54,13 @@ class CoreTests(unittest.TestCase):
         script = "print('ok')\nbad = 'µ🙂'\n"
         self.assertEqual(sanitize_script_text(script), "print('ok')\nbad = ''\n")
 
+    def test_sanitize_script_text_keeps_ascii(self) -> None:
+        script = "print('hello')\nvalue = 10\n"
+        self.assertEqual(sanitize_script_text(script), script)
+
+    def test_sanitize_script_text_empty_string(self) -> None:
+        self.assertEqual(sanitize_script_text(""), "")
+
     def test_build_prompt_contains_context(self) -> None:
         prompt = build_prompt("show monthly volatility", "print('x')", "prices.csv")
         self.assertIn("show monthly volatility", prompt)

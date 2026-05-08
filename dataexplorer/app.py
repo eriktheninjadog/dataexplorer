@@ -212,6 +212,10 @@ class DataExplorerApp(App[None]):
         if not prompt.startswith("/"):
             return False
         command_name = prompt.split()[0].lower()
+        if command_name == "/":
+            self._write_output("Command cannot be empty. Try /ts.")
+            self.query_one("#prompt", Input).value = ""
+            return True
         if command_name == "/ts":
             self._handle_ts_command()
         else:
