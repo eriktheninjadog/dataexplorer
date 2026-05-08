@@ -44,6 +44,7 @@ SAFE_BUILTINS = {
 
 # Assumes a standard equities-style annualization factor.
 TRADING_DAYS_PER_YEAR = 252
+# Matches filename characters to replace: anything not alphanumeric, dot, underscore, or hyphen.
 SAFE_FILENAME_PATTERN = r"[^A-Za-z0-9._-]"
 
 
