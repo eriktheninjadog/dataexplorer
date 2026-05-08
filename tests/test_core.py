@@ -8,8 +8,10 @@ from dataexplorer.core import (
     build_chat_prompt,
     build_prompt,
     default_script,
+    download_eodhd_csv,
     export_session_html,
     extract_python_code,
+    list_available_csv_files,
     list_ollama_models,
     load_session_file,
     request_llm_chat,
@@ -178,6 +180,61 @@ class CoreTests(unittest.TestCase):
         mock_run.return_value.stderr = ""
         models = list_ollama_models()
         self.assertEqual(models, ["llama3.1:latest", "mistral:7b"])
+
+    @patch("dataexplorer.core.urllib_request.urlopen")
+    def test_download_eodhd_csv_writes_downloaded_payload(self, mock_urlopen) -> None:
+        mock_response = mock_urlopen.return_value.__enter__.return_value
+        mock_response.read.return_value = b"date,open,close\n2024-01-01,1,2\n"
+        with tempfile.TemporaryDirectory() as tmp_dir, patch.dict(
+            os.environ, {"EODHD_API_KEY": "token-123"}, clear=False
+        ):
+            output_path = os.path.join(tmp_dir, "prices.csv")
+            written = download_eodhd_csv(
+                symbol="AAPL.US",
+                timeframe="1d",
+                start_date="2024-01-01",
+                end_date="2024-01-31",
+                output_path=output_path,
+            )
+            with open(written, "rb") as csv_file:
+                content = csv_file.read()
+        self.assertEqual(content, b"date,open,close\n2024-01-01,1,2\n")
+        self.assertTrue(written.endswith(".csv"))
+
+    def test_download_eodhd_csv_requires_api_key(self) -> None:
+        with patch.dict(os.environ, {"EODHD_API_KEY": ""}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "Missing EODHD API key"):
+                download_eodhd_csv(
+                    symbol="AAPL.US",
+                    timeframe="1d",
+                    start_date="2024-01-01",
+                    end_date="2024-01-31",
+                )
+
+    def test_download_eodhd_csv_validates_date_order(self) -> None:
+        with patch.dict(os.environ, {"EODHD_API_KEY": "token-123"}, clear=False):
+            with self.assertRaisesRegex(ValueError, "Start date must be less than or equal to end date"):
+                download_eodhd_csv(
+                    symbol="AAPL.US",
+                    timeframe="1d",
+                    start_date="2024-02-01",
+                    end_date="2024-01-01",
+                )
+
+    def test_list_available_csv_files_returns_relative_sorted_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.makedirs(os.path.join(tmp_dir, "nested"), exist_ok=True)
+            os.makedirs(os.path.join(tmp_dir, ".hidden"), exist_ok=True)
+            with open(os.path.join(tmp_dir, "b.csv"), "w", encoding="utf-8") as file_b:
+                file_b.write("x\n")
+            with open(os.path.join(tmp_dir, "nested", "a.csv"), "w", encoding="utf-8") as file_a:
+                file_a.write("y\n")
+            with open(os.path.join(tmp_dir, ".hidden", "hidden.csv"), "w", encoding="utf-8") as hidden_csv:
+                hidden_csv.write("z\n")
+            with open(os.path.join(tmp_dir, "ignore.txt"), "w", encoding="utf-8") as txt_file:
+                txt_file.write("nope\n")
+            paths = list_available_csv_files(tmp_dir)
+        self.assertEqual(paths, ["b.csv", "nested/a.csv"])
 
     def test_save_and_load_session_round_trip(self) -> None:
         payload = {"model": "llama3.1", "code": "print('ok')", "output_events": [{"kind": "system", "text": "Ready"}]}

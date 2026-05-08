@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import base64
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import date
 from io import StringIO
 import json
 import os
@@ -12,6 +13,9 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 
 
 SAFE_BUILTINS = {
@@ -40,6 +44,8 @@ SAFE_BUILTINS = {
 
 # Assumes a standard equities-style annualization factor.
 TRADING_DAYS_PER_YEAR = 252
+# Matches filename characters to replace: anything not alphanumeric, dot, underscore, or hyphen.
+SAFE_FILENAME_PATTERN = r"[^A-Za-z0-9._-]"
 
 
 def sanitize_script_text(text: str) -> str:
@@ -227,6 +233,110 @@ def get_data_summary(data_path: str) -> str:
         return "\n".join(lines)
     except Exception as error:
         return f"(Could not load data summary: {error})"
+
+
+def download_eodhd_csv(
+    *,
+    symbol: str,
+    timeframe: str,
+    start_date: str,
+    end_date: str,
+    output_path: str | None = None,
+    api_key_env: str = "EODHD_API_KEY",
+    timeout: int = 30,
+) -> str:
+    """Download EODHD CSV data and return the written absolute CSV path.
+
+    Timeframe values ``d``, ``1d``, ``day``, and ``daily`` map to the EOD endpoint;
+    all other values are sent to the intraday endpoint as the ``interval`` parameter.
+    """
+    normalized_symbol = symbol.strip()
+    normalized_timeframe = timeframe.strip().lower()
+    normalized_start = start_date.strip()
+    normalized_end = end_date.strip()
+    if not normalized_symbol:
+        raise ValueError("EODHD symbol cannot be empty.")
+    if not normalized_timeframe:
+        raise ValueError("EODHD timeframe cannot be empty.")
+    if not normalized_start or not normalized_end:
+        raise ValueError("EODHD start and end dates are required.")
+
+    try:
+        start_value = date.fromisoformat(normalized_start)
+        end_value = date.fromisoformat(normalized_end)
+    except ValueError as error:
+        raise ValueError("Dates must use YYYY-MM-DD format.") from error
+    if start_value > end_value:
+        raise ValueError("Start date must be less than or equal to end date.")
+
+    api_key = os.environ.get(api_key_env, "").strip()
+    if not api_key:
+        raise RuntimeError(f"Missing EODHD API key in environment variable: {api_key_env}")
+
+    if normalized_timeframe in {"d", "1d", "day", "daily"}:
+        endpoint = f"https://eodhd.com/api/eod/{urllib_parse.quote(normalized_symbol)}"
+        query_params = {
+            "api_token": api_key,
+            "fmt": "csv",
+            "period": "d",
+            "from": normalized_start,
+            "to": normalized_end,
+        }
+    else:
+        endpoint = f"https://eodhd.com/api/intraday/{urllib_parse.quote(normalized_symbol)}"
+        query_params = {
+            "api_token": api_key,
+            "fmt": "csv",
+            "interval": normalized_timeframe,
+            "from": normalized_start,
+            "to": normalized_end,
+        }
+
+    url = f"{endpoint}?{urllib_parse.urlencode(query_params)}"
+    request = urllib_request.Request(url, headers={"User-Agent": "dataexplorer/1.0"})
+    try:
+        with urllib_request.urlopen(request, timeout=timeout) as response:
+            payload = response.read()
+    except urllib_error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"EODHD request failed ({error.code}): {detail or error.reason}") from error
+    except urllib_error.URLError as error:
+        raise RuntimeError(f"EODHD request failed: {error.reason}") from error
+
+    if not payload:
+        raise RuntimeError("EODHD returned an empty response.")
+
+    if output_path:
+        target = Path(output_path).expanduser().resolve()
+    else:
+        safe_symbol = re.sub(SAFE_FILENAME_PATTERN, "_", normalized_symbol)
+        safe_tf = re.sub(SAFE_FILENAME_PATTERN, "_", normalized_timeframe)
+        file_name = f"{safe_symbol}_{safe_tf}_{normalized_start}_{normalized_end}.csv"
+        target = Path(file_name).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+    return str(target)
+
+
+def list_available_csv_files(base_path: str = ".") -> list[str]:
+    """Return sorted relative CSV file paths under ``base_path``.
+
+    Hidden directories (names starting with ``.``) and ``__pycache__`` are skipped.
+    """
+    root = Path(base_path).expanduser().resolve()
+    if not root.exists():
+        raise FileNotFoundError(f"Directory not found: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Not a directory: {root}")
+
+    files: list[str] = []
+    for current_root, dirs, filenames in os.walk(root):
+        dirs[:] = [name for name in dirs if not name.startswith(".") and name != "__pycache__"]
+        for filename in filenames:
+            if filename.lower().endswith(".csv"):
+                full_path = Path(current_root) / filename
+                files.append(str(full_path.relative_to(root)))
+    return sorted(files)
 
 
 def save_session_file(session_path: str, payload: dict[str, object]) -> str:

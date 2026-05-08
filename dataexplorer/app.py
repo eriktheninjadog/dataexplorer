@@ -6,8 +6,10 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Static, Text
 
 from .core import (
     default_script,
+    download_eodhd_csv,
     export_session_html,
     get_data_summary,
+    list_available_csv_files,
     list_ollama_models,
     load_session_file,
     open_figure,
@@ -18,6 +20,10 @@ from .core import (
     sanitize_script_text,
     save_session_file,
 )
+
+
+EODHD_REQUIRED_PARTS = 1 + 4
+EODHD_MAX_PARTS = 1 + 5
 
 
 class DataExplorerApp(App[None]):
@@ -218,6 +224,10 @@ class DataExplorerApp(App[None]):
             return True
         if command_name == "/ts":
             self._handle_ts_command()
+        elif command_name == "/csvs":
+            self._handle_csvs_command(prompt)
+        elif command_name == "/eodhd":
+            self._handle_eodhd_command(prompt)
         else:
             self._write_output(f"Unknown command: {command_name}")
         self.query_one("#prompt", Input).value = ""
@@ -235,6 +245,50 @@ class DataExplorerApp(App[None]):
             signal_column="signal",
         )
         self._write_output(result)
+
+    def _handle_csvs_command(self, prompt: str) -> None:
+        """List available CSV files from a target directory (defaults to current directory)."""
+        parts = prompt.split()
+        search_root = parts[1] if len(parts) > 1 else "."
+        try:
+            csv_files = list_available_csv_files(search_root)
+        except Exception as error:
+            self._write_output(f"/csvs error: {error}")
+            return
+        if not csv_files:
+            self._write_output(f"No CSV files found under: {search_root}")
+            return
+        self._write_output(f"CSV files under {search_root}:")
+        for path in csv_files:
+            self._write_output(f"- {path}")
+
+    def _handle_eodhd_command(self, prompt: str) -> None:
+        """Download EODHD data to CSV and set the CSV path input to the downloaded file."""
+        parts = prompt.split()
+        if len(parts) not in {EODHD_REQUIRED_PARTS, EODHD_MAX_PARTS}:
+            self._write_output(
+                "Usage: /eodhd <symbol> <timeframe> <start-date> <end-date> [output.csv]"
+            )
+            return
+        symbol, timeframe, start_date, end_date = parts[1], parts[2], parts[3], parts[4]
+        output_path = parts[5] if len(parts) == EODHD_MAX_PARTS else None
+        self._write_output(
+            f"Downloading EODHD data: {symbol} {timeframe} {start_date} -> {end_date}..."
+        )
+        try:
+            written_path = download_eodhd_csv(
+                symbol=symbol,
+                timeframe=timeframe,
+                start_date=start_date,
+                end_date=end_date,
+                output_path=output_path,
+            )
+        except Exception as error:
+            self._write_output(f"/eodhd error: {error}")
+            return
+        self.query_one("#csv_path", Input).value = written_path
+        self._write_output(f"EODHD CSV saved: {written_path}")
+        self._write_output("CSV path updated to downloaded file.")
 
     def _handle_run_code(self) -> None:
         """Execute the current script and report text output and generated plots."""
