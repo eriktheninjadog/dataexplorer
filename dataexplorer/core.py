@@ -245,7 +245,11 @@ def download_eodhd_csv(
     api_key_env: str = "EODHD_API_KEY",
     timeout: int = 30,
 ) -> str:
-    """Download EODHD CSV data and return the written absolute CSV path."""
+    """Download EODHD CSV data and return the written absolute CSV path.
+
+    Timeframe values ``d``, ``1d``, ``day``, and ``daily`` map to the EOD endpoint;
+    all other values are sent to the intraday endpoint as the ``interval`` parameter.
+    """
     normalized_symbol = symbol.strip()
     normalized_timeframe = timeframe.strip().lower()
     normalized_start = start_date.strip()
@@ -315,7 +319,10 @@ def download_eodhd_csv(
 
 
 def list_available_csv_files(base_path: str = ".") -> list[str]:
-    """Return sorted relative CSV file paths under ``base_path``."""
+    """Return sorted relative CSV file paths under ``base_path``.
+
+    Hidden directories (names starting with ``.``) and ``__pycache__`` are skipped.
+    """
     root = Path(base_path).expanduser().resolve()
     if not root.exists():
         raise FileNotFoundError(f"Directory not found: {root}")
