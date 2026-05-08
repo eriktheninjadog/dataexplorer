@@ -52,6 +52,7 @@ def default_script(data_path: str) -> str:
 
 
 def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
+    """Build the code-generation prompt for the local LLM."""
     return (
         "You are helping with a local, interactive pandas time-series explorer.\n"
         "Return only valid Python code (no markdown fences) that can be executed directly.\n"
@@ -71,12 +72,40 @@ def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
 
 
 def extract_python_code(text: str) -> str:
+    """Extract Python from a fenced block when present, otherwise return raw text."""
     match = re.search(r"```python", text, flags=re.IGNORECASE)
     if match:
         closing = text.find("```", match.end())
         if closing != -1:
             return text[match.end() : closing].strip()
     return text.strip()
+
+
+def _execute_llm_command(*, prompt: str, model: str, command: str, timeout: int) -> str:
+    """Execute local LLM command and return stripped stdout, or raise a readable error."""
+    normalized_command = command.strip()
+    normalized_model = model.strip()
+
+    if not normalized_command:
+        raise RuntimeError("LLM command cannot be empty.")
+    if not normalized_model:
+        raise RuntimeError("LLM model cannot be empty.")
+
+    process = subprocess.run(
+        [normalized_command, "run", normalized_model, prompt],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if process.returncode != 0:
+        stderr = process.stderr.strip() or "No stderr output."
+        raise RuntimeError(f"LLM command failed: {stderr}")
+
+    output = process.stdout.strip()
+    if not output:
+        raise RuntimeError("LLM returned no output.")
+    return output
 
 
 def request_llm_update(
@@ -88,28 +117,19 @@ def request_llm_update(
     command: str = "ollama",
     timeout: int = 60,
 ) -> str:
-    if not command.strip():
-        raise RuntimeError("LLM command cannot be empty.")
-    if not model.strip():
-        raise RuntimeError("LLM model cannot be empty.")
+    """Request updated session code from the local LLM and normalize to Python source."""
     prompt = build_prompt(user_request=user_request, current_code=current_code, data_path=data_path)
-    process = subprocess.run(
-        [command, "run", model, prompt],
-        check=False,
-        capture_output=True,
-        text=True,
+    output = _execute_llm_command(
+        prompt=prompt,
+        model=model,
+        command=command,
         timeout=timeout,
     )
-    if process.returncode != 0:
-        stderr = process.stderr.strip() or "No stderr output."
-        raise RuntimeError(f"LLM command failed: {stderr}")
-    output = process.stdout.strip()
-    if not output:
-        raise RuntimeError("LLM returned no output.")
     return extract_python_code(output)
 
 
 def build_chat_prompt(user_message: str, data_path: str, data_summary: str = "") -> str:
+    """Build a non-code chat prompt for Q&A about the current dataset."""
     context = f"Data file: {data_path}\n"
     if data_summary:
         context += f"Data summary:\n{data_summary}\n"
@@ -132,27 +152,16 @@ def request_llm_chat(
     command: str = "ollama",
     timeout: int = 60,
 ) -> str:
-    if not command.strip():
-        raise RuntimeError("LLM command cannot be empty.")
-    if not model.strip():
-        raise RuntimeError("LLM model cannot be empty.")
+    """Request a plain-language data analysis response from the local LLM."""
     prompt = build_chat_prompt(
         user_message=user_message, data_path=data_path, data_summary=data_summary
     )
-    process = subprocess.run(
-        [command, "run", model, prompt],
-        check=False,
-        capture_output=True,
-        text=True,
+    return _execute_llm_command(
+        prompt=prompt,
+        model=model,
+        command=command,
         timeout=timeout,
     )
-    if process.returncode != 0:
-        stderr = process.stderr.strip() or "No stderr output."
-        raise RuntimeError(f"LLM command failed: {stderr}")
-    output = process.stdout.strip()
-    if not output:
-        raise RuntimeError("LLM returned no output.")
-    return output
 
 
 def get_data_summary(data_path: str) -> str:
@@ -186,6 +195,7 @@ def run_user_code_with_plots(code: str, data_path: str) -> tuple[str, list[str]]
 
     Returns (text_output, list_of_figure_paths).
     """
+    # Track all saved figures so the UI can report and open them after execution.
     figure_paths: list[str] = []
     stdout = StringIO()
     stderr = StringIO()
@@ -207,6 +217,7 @@ def run_user_code_with_plots(code: str, data_path: str) -> tuple[str, list[str]]
     try:
         import matplotlib  # type: ignore
 
+        # Force a non-interactive backend so plot export works in terminal environments.
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt  # type: ignore
 
@@ -313,6 +324,7 @@ def run_user_code(code: str, data_path: str) -> str:
 
 
 def _references_pandas(code: str) -> bool:
+    """Return True when code references pandas directly or through imports."""
     try:
         tree = ast.parse(code)
     except SyntaxError:
