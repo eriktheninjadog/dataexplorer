@@ -39,6 +39,8 @@ class CoreTests(unittest.TestCase):
         self.assertIn("show monthly volatility", prompt)
         self.assertIn("print('x')", prompt)
         self.assertIn("prices.csv", prompt)
+        self.assertIn("complete, runnable script", prompt)
+        self.assertIn("Do not return only a diff, patch, fragment", prompt)
 
     def test_build_prompt_includes_trading_simulation_guidance(self) -> None:
         prompt = build_prompt("run a trading simulation", "print('x')", "prices.csv")

@@ -58,6 +58,9 @@ def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
     return (
         "You are helping with a local, interactive pandas time-series explorer.\n"
         "Return only valid Python code (no markdown fences) that can be executed directly.\n"
+        "Always return a complete, runnable script.\n"
+        "Do not return only a diff, patch, fragment, or just the newly added lines.\n"
+        "Keep all existing behavior unless the user explicitly asks to change or remove it.\n"
         "Use pandas (already available as 'pd') and keep prints concise and useful for iterative analysis.\n"
         "If the user asks for a trading simulation/backtest, generate code that:\n"
         "- creates any requested indicator columns (for example moving averages).\n"
