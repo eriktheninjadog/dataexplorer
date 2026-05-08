@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ast
+import base64
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import json
 import os
 from pathlib import Path
 import re
@@ -108,6 +110,37 @@ def _execute_llm_command(*, prompt: str, model: str, command: str, timeout: int)
     return output
 
 
+def list_ollama_models(*, command: str = "ollama", timeout: int = 20) -> list[str]:
+    """Return available model names from ``ollama list`` output."""
+    normalized_command = command.strip()
+    if not normalized_command:
+        raise RuntimeError("LLM command cannot be empty.")
+
+    process = subprocess.run(
+        [normalized_command, "list"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if process.returncode != 0:
+        stderr = process.stderr.strip() or "No stderr output."
+        raise RuntimeError(f"Could not list models: {stderr}")
+
+    lines = [line.strip() for line in process.stdout.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    models: list[str] = []
+    for line in lines:
+        if line.lower().startswith("name "):
+            continue
+        model_name = line.split()[0]
+        if model_name:
+            models.append(model_name)
+    return models
+
+
 def request_llm_update(
     user_request: str,
     current_code: str,
@@ -179,6 +212,124 @@ def get_data_summary(data_path: str) -> str:
         return "\n".join(lines)
     except Exception as error:
         return f"(Could not load data summary: {error})"
+
+
+def save_session_file(session_path: str, payload: dict[str, object]) -> str:
+    """Persist session payload to JSON and return absolute file path."""
+    target = Path(session_path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return str(target)
+
+
+def load_session_file(session_path: str) -> dict[str, object]:
+    """Load and parse a saved session JSON payload."""
+    source = Path(session_path).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Session file not found: {source}")
+    content = source.read_text(encoding="utf-8")
+    payload = json.loads(content)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Session file is invalid: expected a JSON object.")
+    return payload
+
+
+def export_session_html(session_path: str, payload: dict[str, object]) -> str:
+    """Export session payload to a standalone HTML document."""
+    from html import escape
+
+    output_path = Path(session_path).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    title = escape(str(payload.get("title", "Data Explorer Session")))
+    csv_path = escape(str(payload.get("csv_path", "")))
+    model = escape(str(payload.get("model", "")))
+    llm_command = escape(str(payload.get("llm_command", "")))
+    code = escape(str(payload.get("code", "")))
+
+    events_html: list[str] = []
+    output_events = payload.get("output_events", [])
+    if isinstance(output_events, list):
+        for event in output_events:
+            if not isinstance(event, dict):
+                continue
+            kind = escape(str(event.get("kind", "system")))
+            text = escape(str(event.get("text", "")))
+            events_html.append(
+                "<div class='event'>"
+                f"<div class='event-kind'>{kind}</div>"
+                f"<pre>{text}</pre>"
+                "</div>"
+            )
+
+    images_html: list[str] = []
+    generated_plots = payload.get("generated_plots", [])
+    if isinstance(generated_plots, list):
+        for image_path in generated_plots:
+            if not isinstance(image_path, str):
+                continue
+            uri = _encode_image_data_uri(image_path)
+            if not uri:
+                continue
+            images_html.append(
+                "<figure>"
+                f"<img src='{uri}' alt='Generated plot' />"
+                f"<figcaption>{escape(image_path)}</figcaption>"
+                "</figure>"
+            )
+
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.4; }}
+    h1, h2 {{ margin-bottom: 0.5rem; }}
+    .meta dt {{ font-weight: 600; }}
+    .meta dd {{ margin: 0 0 0.5rem 0; }}
+    pre {{ white-space: pre-wrap; background: #f5f5f5; padding: 0.75rem; border-radius: 6px; }}
+    .event {{ border: 1px solid #ddd; border-radius: 6px; margin-bottom: 0.75rem; }}
+    .event-kind {{ padding: 0.4rem 0.75rem; background: #fafafa; border-bottom: 1px solid #eee; font-size: 0.85rem; color: #555; text-transform: uppercase; }}
+    .event pre {{ margin: 0; border-radius: 0 0 6px 6px; }}
+    img {{ max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px; }}
+    figure {{ margin: 0 0 1rem 0; }}
+    figcaption {{ font-size: 0.85rem; color: #555; margin-top: 0.4rem; }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  <h2>Session Settings</h2>
+  <dl class="meta">
+    <dt>CSV path</dt><dd>{csv_path}</dd>
+    <dt>Model</dt><dd>{model}</dd>
+    <dt>LLM command</dt><dd>{llm_command}</dd>
+  </dl>
+  <h2>Code</h2>
+  <pre>{code}</pre>
+  <h2>Chat / Output History</h2>
+  {''.join(events_html) or '<p>No history captured.</p>'}
+  <h2>Generated Graphs</h2>
+  {''.join(images_html) or '<p>No generated graphs captured.</p>'}
+</body>
+</html>
+"""
+    output_path.write_text(html, encoding="utf-8")
+    return str(output_path)
+
+
+def _encode_image_data_uri(path: str) -> str:
+    """Encode existing image file to a data URI, or return empty string."""
+    candidate = Path(path).expanduser().resolve()
+    if not candidate.exists() or not candidate.is_file():
+        return ""
+    suffix = candidate.suffix.lower()
+    mime = "image/png" if suffix == ".png" else "image/jpeg" if suffix in {".jpg", ".jpeg"} else ""
+    if not mime:
+        return ""
+    encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 
 def run_user_code_with_plots(code: str, data_path: str) -> tuple[str, list[str]]:
