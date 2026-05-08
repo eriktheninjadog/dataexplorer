@@ -202,7 +202,7 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(written.endswith(".csv"))
 
     def test_download_eodhd_csv_requires_api_key(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"EODHD_API_KEY": ""}, clear=False):
             with self.assertRaisesRegex(RuntimeError, "Missing EODHD API key"):
                 download_eodhd_csv(
                     symbol="AAPL.US",
@@ -212,7 +212,7 @@ class CoreTests(unittest.TestCase):
                 )
 
     def test_download_eodhd_csv_validates_date_order(self) -> None:
-        with patch.dict(os.environ, {"EODHD_API_KEY": "token-123"}, clear=True):
+        with patch.dict(os.environ, {"EODHD_API_KEY": "token-123"}, clear=False):
             with self.assertRaisesRegex(ValueError, "Start date must be less than or equal to end date"):
                 download_eodhd_csv(
                     symbol="AAPL.US",

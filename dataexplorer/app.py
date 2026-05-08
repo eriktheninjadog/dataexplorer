@@ -22,6 +22,10 @@ from .core import (
 )
 
 
+EODHD_MIN_ARGS = 1 + 4
+EODHD_MAX_ARGS = 1 + 5
+
+
 class DataExplorerApp(App[None]):
     """Textual UI for interactive data exploration and strategy iteration."""
 
@@ -261,15 +265,13 @@ class DataExplorerApp(App[None]):
     def _handle_eodhd_command(self, prompt: str) -> None:
         """Download EODHD data to CSV and set the CSV path input to the downloaded file."""
         parts = prompt.split()
-        required_arg_count = 5  # /eodhd + symbol + timeframe + start-date + end-date
-        optional_arg_count = 6  # plus optional output path
-        if len(parts) not in {required_arg_count, optional_arg_count}:
+        if len(parts) not in {EODHD_MIN_ARGS, EODHD_MAX_ARGS}:
             self._write_output(
                 "Usage: /eodhd <symbol> <timeframe> <start-date> <end-date> [output.csv]"
             )
             return
         symbol, timeframe, start_date, end_date = parts[1], parts[2], parts[3], parts[4]
-        output_path = parts[5] if len(parts) == optional_arg_count else None
+        output_path = parts[5] if len(parts) == EODHD_MAX_ARGS else None
         self._write_output(
             f"Downloading EODHD data: {symbol} {timeframe} {start_date} -> {end_date}..."
         )
