@@ -165,7 +165,7 @@ def request_llm_update(
         command=command,
         timeout=timeout,
     )
-    return textwrap.dedent(extract_python_code(output)).strip("\r\n")
+    return textwrap.dedent(extract_python_code(output))
 
 
 def build_chat_prompt(user_message: str, data_path: str, data_summary: str = "") -> str:
