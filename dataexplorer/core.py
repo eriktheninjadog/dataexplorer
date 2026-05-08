@@ -72,7 +72,7 @@ def build_prompt(user_request: str, current_code: str, data_path: str) -> str:
 
 
 def extract_python_code(text: str) -> str:
-    """Extract python from a fenced block when present, otherwise return raw text."""
+    """Extract Python from a fenced block when present, otherwise return raw text."""
     match = re.search(r"```python", text, flags=re.IGNORECASE)
     if match:
         closing = text.find("```", match.end())
@@ -81,7 +81,7 @@ def extract_python_code(text: str) -> str:
     return text.strip()
 
 
-def _run_llm_prompt(*, prompt: str, model: str, command: str, timeout: int) -> str:
+def _execute_llm_command(*, prompt: str, model: str, command: str, timeout: int) -> str:
     """Execute local LLM command and return stripped stdout, or raise a readable error."""
     if not command.strip():
         raise RuntimeError("LLM command cannot be empty.")
@@ -116,7 +116,7 @@ def request_llm_update(
 ) -> str:
     """Request updated session code from the local LLM and normalize to Python source."""
     prompt = build_prompt(user_request=user_request, current_code=current_code, data_path=data_path)
-    output = _run_llm_prompt(
+    output = _execute_llm_command(
         prompt=prompt,
         model=model,
         command=command,
@@ -153,7 +153,7 @@ def request_llm_chat(
     prompt = build_chat_prompt(
         user_message=user_message, data_path=data_path, data_summary=data_summary
     )
-    return _run_llm_prompt(
+    return _execute_llm_command(
         prompt=prompt,
         model=model,
         command=command,
