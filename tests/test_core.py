@@ -14,10 +14,26 @@ from dataexplorer.core import (
     load_session_file,
     request_llm_chat,
     request_llm_update,
+    run_signal_trading_simulation,
     run_user_code,
     run_user_code_with_plots,
+    sanitize_script_text,
     save_session_file,
 )
+
+try:
+    import pandas  # type: ignore  # noqa: F401
+
+    HAS_PANDAS = True
+except Exception:
+    HAS_PANDAS = False
+
+try:
+    import matplotlib  # type: ignore  # noqa: F401
+
+    HAS_MATPLOTLIB = True
+except Exception:
+    HAS_MATPLOTLIB = False
 
 
 class CoreTests(unittest.TestCase):
@@ -33,6 +49,10 @@ class CoreTests(unittest.TestCase):
     def test_extract_python_code_without_fence(self) -> None:
         raw = "print('hello')"
         self.assertEqual(extract_python_code(raw), "print('hello')")
+
+    def test_sanitize_script_text_removes_non_ascii(self) -> None:
+        script = "print('ok')\nbad = 'µ🙂'\n"
+        self.assertEqual(sanitize_script_text(script), "print('ok')\nbad = ''\n")
 
     def test_build_prompt_contains_context(self) -> None:
         prompt = build_prompt("show monthly volatility", "print('x')", "prices.csv")
@@ -201,12 +221,31 @@ class CoreTests(unittest.TestCase):
         self.assertIn("plot error", output)
         self.assertEqual(paths, [])
 
+    @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is not installed")
     def test_run_user_code_with_plots_captures_plt_show(self) -> None:
         code = "plt.figure()\nplt.plot([1, 2, 3])\nplt.show()"
         output, paths = run_user_code_with_plots(code, "prices.csv")
         self.assertEqual(len(paths), 1)
         self.assertTrue(os.path.exists(paths[0]))
         self.assertTrue(paths[0].endswith(".png"))
+
+    @unittest.skipUnless(HAS_PANDAS, "pandas is not installed")
+    def test_run_signal_trading_simulation_uses_next_row_price(self) -> None:
+        code = (
+            "df = pd.DataFrame({"
+            "'close': [100.0, 110.0, 120.0], "
+            "'signal': [1, 0, 0]"
+            "})"
+        )
+        output = run_signal_trading_simulation(code, "prices.csv")
+        self.assertIn("Total PnL: 10.000000", output)
+        self.assertIn("Trades: 1", output)
+
+    def test_run_signal_trading_simulation_requires_df(self) -> None:
+        output = run_signal_trading_simulation("print('no df')", "prices.csv")
+        self.assertTrue(
+            "requires the active script to define" in output or "pandas is required" in output
+        )
 
 
 if __name__ == "__main__":

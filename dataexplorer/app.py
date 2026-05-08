@@ -13,7 +13,9 @@ from .core import (
     open_figure,
     request_llm_chat,
     request_llm_update,
+    run_signal_trading_simulation,
     run_user_code_with_plots,
+    sanitize_script_text,
     save_session_file,
 )
 
@@ -158,6 +160,8 @@ class DataExplorerApp(App[None]):
         if not prompt:
             self._write_output("Enter a prompt first.")
             return
+        if self._handle_prompt_command(prompt):
+            return
         self._write_output(f"Requesting update from local LLM model '{model}'...")
         try:
             updated = request_llm_update(
@@ -170,7 +174,10 @@ class DataExplorerApp(App[None]):
         except Exception as error:
             self._write_output(f"LLM error: {error}")
             return
-        code.text = updated
+        sanitized = sanitize_script_text(updated)
+        if sanitized != updated:
+            self._write_output("Removed non-ASCII characters from updated script.")
+        code.text = sanitized
         self._write_output("Code updated from LLM response.")
 
     def _handle_chat(self) -> None:
@@ -180,6 +187,8 @@ class DataExplorerApp(App[None]):
         command = self._current_llm_command()
         if not prompt:
             self._write_output("Enter a question first.")
+            return
+        if self._handle_prompt_command(prompt):
             return
         self._write_output(f"You: {prompt}", kind="user")
         self._write_output(f"Asking '{model}'...")
@@ -197,6 +206,31 @@ class DataExplorerApp(App[None]):
             return
         self._write_output(f"Assistant: {response}", kind="assistant")
         self.query_one("#prompt", Input).value = ""
+
+    def _handle_prompt_command(self, prompt: str) -> bool:
+        """Handle slash-commands entered in the prompt input."""
+        if not prompt.startswith("/"):
+            return False
+        command_name = prompt.split()[0].lower()
+        if command_name == "/ts":
+            self._handle_ts_command()
+        else:
+            self._write_output(f"Unknown command: {command_name}")
+        self.query_one("#prompt", Input).value = ""
+        return True
+
+    def _handle_ts_command(self) -> None:
+        """Run active script and simulate trades from ``signal`` on next ``close`` row."""
+        code = self.query_one("#code", TextArea).text
+        csv_path = self._current_csv_path()
+        self._write_output(f"Running /ts with {csv_path} (columns: close, signal)...")
+        result = run_signal_trading_simulation(
+            code=code,
+            data_path=csv_path,
+            price_column="close",
+            signal_column="signal",
+        )
+        self._write_output(result)
 
     def _handle_run_code(self) -> None:
         """Execute the current script and report text output and generated plots."""

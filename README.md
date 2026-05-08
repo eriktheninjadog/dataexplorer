@@ -13,6 +13,8 @@ python main.py --csv prices.csv --model llama3.1
 
 - The center editor shows the **live Python script** and is always editable.
 - Use **Ask LLM** to request script updates from your local LLM (`ollama run <model>` by default).
+- Prompt strings that start with `/` are treated as app commands (not sent to the LLM).
+- Use `/ts` to run a trading simulation on the active script output using `close` and `signal`; signals execute on the next row's price.
 - Change **Model** and **LLM command** directly inside the app at any time.
 - Use **Refresh Models** to query `ollama list`, then select one of the returned model names.
 - Use **Run Code** to execute the current script with pandas against the selected CSV path.
