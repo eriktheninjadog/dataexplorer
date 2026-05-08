@@ -44,6 +44,7 @@ SAFE_BUILTINS = {
 
 # Assumes a standard equities-style annualization factor.
 TRADING_DAYS_PER_YEAR = 252
+SAFE_FILENAME_PATTERN = r"[^A-Za-z0-9._-]"
 
 
 def sanitize_script_text(text: str) -> str:
@@ -303,8 +304,8 @@ def download_eodhd_csv(
     if output_path:
         target = Path(output_path).expanduser().resolve()
     else:
-        safe_symbol = re.sub(r"[^A-Za-z0-9._-]", "_", normalized_symbol)
-        safe_tf = re.sub(r"[^A-Za-z0-9._-]", "_", normalized_timeframe)
+        safe_symbol = re.sub(SAFE_FILENAME_PATTERN, "_", normalized_symbol)
+        safe_tf = re.sub(SAFE_FILENAME_PATTERN, "_", normalized_timeframe)
         file_name = f"{safe_symbol}_{safe_tf}_{normalized_start}_{normalized_end}.csv"
         target = Path(file_name).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
