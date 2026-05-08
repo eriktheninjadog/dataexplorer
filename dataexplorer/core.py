@@ -132,10 +132,13 @@ def list_ollama_models(*, command: str = "ollama", timeout: int = 20) -> list[st
         return []
 
     models: list[str] = []
-    for line in lines:
-        if line.lower().startswith("name "):
+    for index, line in enumerate(lines):
+        if index == 0 and line.lower().startswith("name"):
             continue
-        model_name = line.split()[0]
+        parts = line.split()
+        if not parts:
+            continue
+        model_name = parts[0]
         if model_name:
             models.append(model_name)
     return models
@@ -325,7 +328,12 @@ def _encode_image_data_uri(path: str) -> str:
     if not candidate.exists() or not candidate.is_file():
         return ""
     suffix = candidate.suffix.lower()
-    mime = "image/png" if suffix == ".png" else "image/jpeg" if suffix in {".jpg", ".jpeg"} else ""
+    if suffix == ".png":
+        mime = "image/png"
+    elif suffix in {".jpg", ".jpeg"}:
+        mime = "image/jpeg"
+    else:
+        mime = ""
     if not mime:
         return ""
     encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
