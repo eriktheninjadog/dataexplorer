@@ -89,6 +89,22 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(output, "print('ok')")
 
     @patch("dataexplorer.core.subprocess.run")
+    def test_request_llm_update_normalizes_leading_indentation(self, mock_run) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = (
+            "```python\n"
+            "    data_path = 'prices.csv'\n"
+            "    df = pd.read_csv(data_path)\n"
+            "    print(len(df))\n"
+            "```"
+        )
+        mock_run.return_value.stderr = ""
+        output = request_llm_update("do it", "print('x')", "prices.csv")
+        self.assertTrue(output.startswith("data_path = 'prices.csv'"))
+        self.assertIn("\ndf = pd.read_csv(data_path)\n", output)
+        self.assertIn("\nprint(len(df))", output)
+
+    @patch("dataexplorer.core.subprocess.run")
     def test_request_llm_update_raises_on_failure(self, mock_run) -> None:
         mock_run.return_value.returncode = 1
         mock_run.return_value.stdout = ""

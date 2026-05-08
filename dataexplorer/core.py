@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 
 
 SAFE_BUILTINS = {
@@ -82,8 +83,8 @@ def extract_python_code(text: str) -> str:
     if match:
         closing = text.find("```", match.end())
         if closing != -1:
-            return text[match.end() : closing].strip()
-    return text.strip()
+            return text[match.end() : closing].strip("\r\n")
+    return text.strip("\r\n")
 
 
 def _execute_llm_command(*, prompt: str, model: str, command: str, timeout: int) -> str:
@@ -164,7 +165,7 @@ def request_llm_update(
         command=command,
         timeout=timeout,
     )
-    return extract_python_code(output)
+    return textwrap.dedent(extract_python_code(output)).strip()
 
 
 def build_chat_prompt(user_message: str, data_path: str, data_summary: str = "") -> str:
