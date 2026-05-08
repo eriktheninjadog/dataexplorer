@@ -83,13 +83,16 @@ def extract_python_code(text: str) -> str:
 
 def _execute_llm_command(*, prompt: str, model: str, command: str, timeout: int) -> str:
     """Execute local LLM command and return stripped stdout, or raise a readable error."""
-    if not command.strip():
+    normalized_command = command.strip()
+    normalized_model = model.strip()
+
+    if not normalized_command:
         raise RuntimeError("LLM command cannot be empty.")
-    if not model.strip():
+    if not normalized_model:
         raise RuntimeError("LLM model cannot be empty.")
 
     process = subprocess.run(
-        [command, "run", model, prompt],
+        [normalized_command, "run", normalized_model, prompt],
         check=False,
         capture_output=True,
         text=True,
