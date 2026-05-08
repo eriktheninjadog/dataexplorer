@@ -38,6 +38,14 @@ SAFE_BUILTINS = {
     "tuple": tuple,
 }
 
+# Assumes a standard equities-style annualization factor.
+TRADING_DAYS_PER_YEAR = 252
+
+
+def sanitize_script_text(text: str) -> str:
+    """Remove non-ASCII characters from script text."""
+    return "".join(char for char in text if ord(char) < 128)
+
 
 def default_script(data_path: str) -> str:
     """Create a starter script for time-series price-data exploration."""
@@ -423,6 +431,105 @@ def run_user_code_with_plots(code: str, data_path: str) -> tuple[str, list[str]]
     if err_text:
         return f"{stdout.getvalue()}\n{err_text}".strip(), figure_paths
     return (stdout.getvalue().strip() or "No output produced."), figure_paths
+
+
+def run_signal_trading_simulation(
+    code: str,
+    data_path: str,
+    *,
+    price_column: str = "close",
+    signal_column: str = "signal",
+) -> str:
+    """Run session code, then simulate trading using next-row execution from ``signal``.
+
+    Risk metrics are annualized with a 252 trading-days factor.
+    """
+    stdout = StringIO()
+    stderr = StringIO()
+    namespace: dict[str, object] = {
+        "__builtins__": SAFE_BUILTINS,
+        "data_path": str(Path(data_path)),
+    }
+    pandas_import_error: Exception | None = None
+    pandas_module = None
+    try:
+        import pandas as pd  # type: ignore
+
+        namespace["pd"] = pd
+        pandas_module = pd
+    except Exception as error:
+        pandas_import_error = error
+    if pandas_import_error and _references_pandas(code):
+        return "Error: pandas is required to execute this script but is not installed."
+
+    try:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exec(compile(code, "<session_code>", "exec"), namespace, namespace)
+    except (NameError, ImportError) as error:
+        if "__import__" in str(error):
+            return (
+                "Error: import statements are disabled in session code. "
+                "Use the preloaded 'pd' pandas object instead."
+            )
+        err_text = stderr.getvalue().strip()
+        if err_text:
+            return f"{stdout.getvalue()}\n{err_text}\n{error}".strip()
+        return f"{stdout.getvalue()}\nError: {error}".strip()
+    except Exception as error:
+        err_text = stderr.getvalue().strip()
+        if err_text:
+            return f"{stdout.getvalue()}\n{err_text}\n{error}".strip()
+        return f"{stdout.getvalue()}\nError: {error}".strip()
+
+    if pandas_module is None:
+        return "Error: pandas is required to run /ts simulation."
+
+    df_obj = namespace.get("df")
+    if not isinstance(df_obj, pandas_module.DataFrame):
+        return "Error: /ts requires the active script to define a pandas DataFrame named 'df'."
+
+    missing_columns = [name for name in (price_column, signal_column) if name not in df_obj.columns]
+    if missing_columns:
+        return "Error: /ts missing required column(s): " + ", ".join(missing_columns)
+
+    frame = df_obj[[price_column, signal_column]].copy()
+    frame[price_column] = pandas_module.to_numeric(frame[price_column], errors="coerce")
+    frame[signal_column] = pandas_module.to_numeric(frame[signal_column], errors="coerce").fillna(0.0)
+    frame = frame.dropna(subset=[price_column]).reset_index(drop=True)
+    if len(frame) < 2:
+        return "Error: /ts requires at least 2 valid price rows."
+
+    signal = frame[signal_column].apply(lambda value: 1.0 if value > 0 else (-1.0 if value < 0 else 0.0))
+    effective_signal = signal.shift(1).fillna(0.0)
+    price_diff = frame[price_column].diff().fillna(0.0)
+    step_pnl = effective_signal * price_diff
+
+    equity = step_pnl.cumsum()
+    mean_step_pnl = float(step_pnl.mean())
+    step_std = float(step_pnl.std(ddof=0))
+    sharpe = 0.0 if step_std == 0 else mean_step_pnl / step_std * (TRADING_DAYS_PER_YEAR ** 0.5)
+
+    downside = step_pnl[step_pnl < 0]
+    downside_std = float(downside.std(ddof=0)) if len(downside) else 0.0
+    sortino = 0.0 if downside_std == 0 else mean_step_pnl / downside_std * (TRADING_DAYS_PER_YEAR ** 0.5)
+
+    drawdown = equity - equity.cummax()
+    max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
+    trades = int(((effective_signal != effective_signal.shift(1).fillna(0.0)) & (effective_signal != 0.0)).sum())
+
+    summary_lines = [
+        f"Trading simulation ({signal_column} executes on next {price_column} row)",
+        f"Rows: {len(frame)}",
+        f"Trades: {trades}",
+        f"Total PnL: {float(step_pnl.sum()):.6f}",
+        f"Sharpe: {sharpe:.6f}",
+        f"Sortino: {sortino:.6f}",
+        f"Max Drawdown: {max_drawdown:.6f}",
+    ]
+    prior_output = stdout.getvalue().strip()
+    if prior_output:
+        return f"{prior_output}\n" + "\n".join(summary_lines)
+    return "\n".join(summary_lines)
 
 
 def open_figure(path: str) -> bool:
