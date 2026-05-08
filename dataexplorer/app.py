@@ -295,9 +295,9 @@ class DataExplorerApp(App[None]):
 
         output = self.query_one("#output", RichLog)
         output.clear()
-        self._session_events = []
+        self._session_events = events.copy()
         for event in events:
-            self._write_output(event["text"], kind=event["kind"], record=True)
+            self._write_output(event["text"], kind=event["kind"], record=False)
 
         plots: list[str] = []
         payload_plots = payload.get("generated_plots")

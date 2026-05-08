@@ -114,7 +114,7 @@ def list_ollama_models(*, command: str = "ollama", timeout: int = 20) -> list[st
     """Return available model names from ``ollama list`` output."""
     normalized_command = command.strip()
     if not normalized_command:
-        raise RuntimeError("LLM command cannot be empty.")
+        raise RuntimeError('LLM command cannot be empty. Please provide a valid command (e.g., "ollama").')
 
     process = subprocess.run(
         [normalized_command, "list"],
