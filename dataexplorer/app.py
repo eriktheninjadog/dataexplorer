@@ -15,6 +15,8 @@ from .core import (
 
 
 class DataExplorerApp(App[None]):
+    """Textual UI for interactive data exploration and strategy iteration."""
+
     TITLE = "Data Explorer"
     CSS = """
     Screen { layout: vertical; }
@@ -32,6 +34,7 @@ class DataExplorerApp(App[None]):
         self.csv_path = csv_path
         self.model = model
         self.llm_command = llm_command
+        # False => code-generation/editing mode, True => analyst-style chat mode.
         self._chat_mode: bool = False
 
     def compose(self) -> ComposeResult:
@@ -57,6 +60,7 @@ class DataExplorerApp(App[None]):
         output.write("Press '💬 Chat Mode' to ask questions about the data without generating code.")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route all button events to the appropriate mode-specific handler."""
         if event.button.id == "ask_llm":
             if self._chat_mode:
                 self._handle_chat()
@@ -67,7 +71,12 @@ class DataExplorerApp(App[None]):
         elif event.button.id == "chat_mode_btn":
             self._toggle_chat_mode()
 
+    def _current_csv_path(self) -> str:
+        """Return the current CSV path from UI input, falling back to app default."""
+        return self.query_one("#csv_path", Input).value.strip() or self.csv_path
+
     def _toggle_chat_mode(self) -> None:
+        """Switch UI between code-editing mode and conversational analysis mode."""
         self._chat_mode = not self._chat_mode
         code_widget = self.query_one("#code", TextArea)
         run_btn = self.query_one("#run_code", Button)
@@ -95,7 +104,7 @@ class DataExplorerApp(App[None]):
         code = self.query_one("#code", TextArea)
         output = self.query_one("#output", RichLog)
         prompt = self.query_one("#prompt", Input).value.strip()
-        csv_path = self.query_one("#csv_path", Input).value.strip() or self.csv_path
+        csv_path = self._current_csv_path()
         if not prompt:
             output.write("Enter a prompt first.")
             return
@@ -117,7 +126,7 @@ class DataExplorerApp(App[None]):
     def _handle_chat(self) -> None:
         output = self.query_one("#output", RichLog)
         prompt = self.query_one("#prompt", Input).value.strip()
-        csv_path = self.query_one("#csv_path", Input).value.strip() or self.csv_path
+        csv_path = self._current_csv_path()
         if not prompt:
             output.write("Enter a question first.")
             return
@@ -139,9 +148,10 @@ class DataExplorerApp(App[None]):
         self.query_one("#prompt", Input).value = ""
 
     def _handle_run_code(self) -> None:
+        """Execute the current script and report text output and generated plots."""
         code = self.query_one("#code", TextArea)
         output = self.query_one("#output", RichLog)
-        csv_path = self.query_one("#csv_path", Input).value.strip() or self.csv_path
+        csv_path = self._current_csv_path()
         output.write(f"Running script with {csv_path}...")
         result, figure_paths = run_user_code_with_plots(code.text, csv_path)
         output.write(result)
@@ -149,4 +159,3 @@ class DataExplorerApp(App[None]):
             output.write(f"Plot saved: {path}")
             if not open_figure(path):
                 output.write(f"  (Could not open viewer for {path})")
-
