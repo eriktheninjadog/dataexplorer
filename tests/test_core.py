@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 import builtins
 from unittest.mock import patch
@@ -7,11 +8,15 @@ from dataexplorer.core import (
     build_chat_prompt,
     build_prompt,
     default_script,
+    export_session_html,
     extract_python_code,
+    list_ollama_models,
+    load_session_file,
     request_llm_chat,
     request_llm_update,
     run_user_code,
     run_user_code_with_plots,
+    save_session_file,
 )
 
 
@@ -116,6 +121,57 @@ class CoreTests(unittest.TestCase):
         mock_run.return_value.stderr = "no model"
         with self.assertRaises(RuntimeError):
             request_llm_chat("any question", "prices.csv")
+
+    @patch("dataexplorer.core.subprocess.run")
+    def test_list_ollama_models_parses_output(self, mock_run) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = (
+            "NAME                    ID              SIZE      MODIFIED\n"
+            "llama3.1:latest         abc123          4.9 GB    2 days ago\n"
+            "mistral:7b              def456          4.1 GB    1 day ago\n"
+        )
+        mock_run.return_value.stderr = ""
+        models = list_ollama_models()
+        self.assertEqual(models, ["llama3.1:latest", "mistral:7b"])
+
+    def test_save_and_load_session_round_trip(self) -> None:
+        payload = {"model": "llama3.1", "code": "print('ok')", "output_events": [{"kind": "system", "text": "Ready"}]}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            session_path = os.path.join(tmp_dir, "session.json")
+            written = save_session_file(session_path, payload)
+            loaded = load_session_file(written)
+        self.assertEqual(loaded["model"], "llama3.1")
+        self.assertEqual(loaded["code"], "print('ok')")
+
+    def test_export_session_html_includes_content_and_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            png_path = os.path.join(tmp_dir, "plot_1.png")
+            with open(png_path, "wb") as image:
+                image.write(
+                    b"\x89PNG\r\n\x1a\n"
+                    b"\x00\x00\x00\rIHDR"
+                    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+                    b"\x90wS\xde"
+                    b"\x00\x00\x00\x0cIDATx\x9cc``\x00\x00\x00\x04\x00\x01"
+                    b"\x0b\xe7\x02\x9b"
+                    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+                )
+            html_path = os.path.join(tmp_dir, "session.html")
+            payload = {
+                "title": "Session Title",
+                "csv_path": "prices.csv",
+                "model": "llama3.1",
+                "llm_command": "ollama",
+                "code": "print('hello')",
+                "output_events": [{"kind": "assistant", "text": "hello back"}],
+                "generated_plots": [png_path],
+            }
+            written = export_session_html(html_path, payload)
+            with open(written, "r", encoding="utf-8") as exported:
+                content = exported.read()
+        self.assertIn("Session Title", content)
+        self.assertIn("hello back", content)
+        self.assertIn("data:image/png;base64,", content)
 
     def test_run_user_code_with_plots_returns_stdout(self) -> None:
         output, paths = run_user_code_with_plots("print('hello plots')", "prices.csv")
